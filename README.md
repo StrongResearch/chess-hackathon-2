@@ -21,7 +21,14 @@ cd ~/chess-hackathon-2
 pip install -r requirements.txt
 ```
 
-### Step 3. Update experiment launch file
+### Step 3. Choose a model
+Your options are the Strong Transformer or Transformer by PyTorch.
+
+Copy your chosen model file and the corresponding config YAML file from the `~/chess-hackathon-2/models` to `~/chess-hackathon-2`.
+
+Rename these files to `model.py` and `model_config.yaml` respectively.
+
+### Step 4. Update experiment launch file
 Visit Control Plane at https://cp.strongcompute.ai and click on the **Projects** tab. Create a new project and note the
 Project ID.
 
@@ -40,7 +47,7 @@ command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-sydney/ && torch
 
 Note we are launchin in compute mode "cycle" just for the purpose of validating that our model will train.
 
-### Step 4. Launch training
+### Step 5. Launch training
 
 Launch your GPT model to train.
 
