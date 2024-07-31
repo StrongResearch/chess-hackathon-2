@@ -13,10 +13,12 @@ python3 -m virtualenv ~/.chess
 source ~/.chess/bin/activate
 ```
 
-### Step 2. Install dependencies
+### Step 2. Clone repo and install dependencies
 Install project dependencies.
 
 ```bash
+cd ~
+git clone https://github.com/StrongResearch/chess-hackathon-2.git
 cd ~/chess-hackathon-2
 pip install -r requirements.txt
 ```
