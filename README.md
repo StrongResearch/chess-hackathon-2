@@ -42,7 +42,7 @@ nnodes = 12
 output_path = "~/outputs/chessGPT"
 dataset_id = "f912e556-e78f-48c7-a8f0-1822aba36714"
 compute_mode = "cycle"
-command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-sydney/ && torchrun --nnodes=12 --nproc-per-node=6 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --model-config /root/chess-hackathon-sydney/model_config.yaml --save-dir $OUTPUT_PATH"
+command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-2/ && torchrun --nnodes=12 --nproc-per-node=6 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --model-config /root/chess-hackathon-2/model_config.yaml --save-dir $OUTPUT_PATH"
 ```
 
 Note we are launchin in compute mode "cycle" just for the purpose of validating that our model will train.
