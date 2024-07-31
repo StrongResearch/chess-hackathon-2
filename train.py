@@ -88,10 +88,17 @@ def main(args, timer):
     optimizer = Lamb(model.parameters(), lr=args.lr, weight_decay=args.wd)
     metrics = {"train": MetricsTracker(), "test": MetricsTracker()}
 
-    load_path = args.load_dir if args.load_dir else args.save_dir
-    load_sym_path = os.path.join(load_path, saver.symlink_name)
-    if os.path.exists(load_sym_path) and os.path.islink(load_sym_path):
-        full_load_path = os.readlink(load_sym_path)
+    external_resume_path = os.path.join(args.load_dir, saver.symlink_name)
+    local_resume_path = os.path.join(args.save_dir, saver.symlink_name)
+    if os.path.exists(local_resume_path) and os.path.islink(local_resume_path):
+        load_path = local_resume_path
+    elif os.path.exists(external_resume_path) and os.path.islink(external_resume_path):
+        load_path = external_resume_path
+    else:
+        load_path = None
+
+    if load_path:
+        full_load_path = os.readlink(load_path)
         if args.is_master:
             timer.report(f"Loading checkpoint from {full_load_path}")
 
