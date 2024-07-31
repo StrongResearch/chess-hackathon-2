@@ -161,14 +161,16 @@ def main(args, timer):
                     optimizer.zero_grad()
 
                     metrics["train"].reduce()
-
-                    if args.is_master:
-                        rpt = metrics["train"].local
-                        avg_loss = rpt["accum_loss"] / rpt["gen_tokens"]
-                        rpt_top1 = 100 * rpt["top1_correct"] / rpt["gen_tokens"]
-                        rpt_top5 = 100 * rpt["top5_correct"] / rpt["gen_tokens"]
-                        rpt_uncertainty = rpt["uncertainty"] / rpt["gen_tokens"]
-                        print(f"Epoch [{epoch:,}] Step [{step:,} / {train_steps_per_epoch:,}], Avg Loss [{avg_loss:,.3f}], Top1: [{rpt_top1:,.3f}%], Top5: [{rpt_top5:,.3f}%], Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}")
+                    rpt = metrics["train"].local
+                    avg_loss = rpt["accum_loss"] / rpt["gen_tokens"]
+                    rpt_top1 = 100 * rpt["top1_correct"] / rpt["gen_tokens"]
+                    rpt_top5 = 100 * rpt["top5_correct"] / rpt["gen_tokens"]
+                    rpt_uncertainty = rpt["uncertainty"] / rpt["gen_tokens"]
+                    report = f"""\
+Epoch [{epoch:,}] Step [{step:,} / {train_steps_per_epoch:,}], \
+Avg Loss [{avg_loss:,.3f}], Top1: [{rpt_top1:,.3f}%], Top5: [{rpt_top5:,.3f}%], \
+Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
+                    timer.report(report)
                     metrics["train"].reset_local()
 
                 # Saving
@@ -227,17 +229,18 @@ def main(args, timer):
                         
                         # Reporting
                         if is_last_step:
+
                             metrics["test"].reduce()
-
-                            if args.is_master:
-                                rpt = metrics["test"].local
-                                avg_loss = rpt["accum_loss"] / rpt["gen_tokens"]
-                                rpt_top1 = 100 * rpt["top1_correct"] / rpt["gen_tokens"]
-                                rpt_top5 = 100 * rpt["top5_correct"] / rpt["gen_tokens"]
-                                rpt_uncertainty = rpt["uncertainty"] / rpt["gen_tokens"]
-                                print(f"Epoch [{epoch}] Evaluation, Avg Loss [{avg_loss:,.3f}], Top1 [{rpt_top1:,.3f}%], Top5 [{rpt_top5:,.3f}%], Uncertainty: [{rpt_uncertainty:,.3f}]")
-
-                            metrics["test"].reset_local()
+                            rpt = metrics["test"].local
+                            avg_loss = rpt["accum_loss"] / rpt["gen_tokens"]
+                            rpt_top1 = 100 * rpt["top1_correct"] / rpt["gen_tokens"]
+                            rpt_top5 = 100 * rpt["top5_correct"] / rpt["gen_tokens"]
+                            rpt_uncertainty = rpt["uncertainty"] / rpt["gen_tokens"]
+                            report = f"""\
+Epoch [{epoch}] Evaluation, Avg Loss [{avg_loss:,.3f}], \
+Top1 [{rpt_top1:,.3f}%], Top5 [{rpt_top5:,.3f}%], \
+Uncertainty: [{rpt_uncertainty:,.3f}]"""
+                            timer.report(report)
                         
                         # Saving
                         if (is_save_step or is_last_step) and args.is_master:
