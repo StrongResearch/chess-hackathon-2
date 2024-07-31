@@ -56,7 +56,14 @@ cd ~/chess-hackathon-2
 isc train chessGPT.isc
 ```
 
-## Repo inventory
+## Let's talk Chess AI
+The inspiration for this hackathon is the research by Adam Karvonen *Chess-GPT's Internal World Model - A Chess-GPT Linear Emergent World Representation* 
+which demonstrated that an autoregressive GPT model can learn to predict the next character in a PGN string, and is
+thus able to play chess at a respectable Elo.
+
+https://adamkarvonen.github.io/machine_learning/2024/01/03/chess-world-models.html
+
+We're going to replicate this work!
 
 ### Dataset
 **COMING SOON**
