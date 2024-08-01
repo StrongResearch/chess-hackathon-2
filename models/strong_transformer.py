@@ -64,7 +64,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.lin1 = nn.Linear(embed_dim, ff_dim, bias=True)
         self.lin2 = nn.Linear(ff_dim, embed_dim, bias=True)
-        self.act = nn.ReLU()
+        self.act = nn.LeakyReLU()
         self.init_weights(init_scale)
 
     def init_weights(self, init_scale):
