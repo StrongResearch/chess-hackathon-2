@@ -38,5 +38,5 @@ gameplay_kwargs = {
 timer_start = time.perf_counter()
 game_result = play_game(**gameplay_kwargs)
 elapsed = time.perf_counter() - timer_start
-assert elapsed < 160, "Model too slow, consider simplifying or reducing the size of your model."
+assert elapsed < 80, "Model too slow, consider simplifying or reducing the size of your model."
 print("Model passes validation test.")
