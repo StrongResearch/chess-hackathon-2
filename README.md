@@ -36,7 +36,7 @@ Rename these files to `model.py` and `model_config.yaml` respectively.
 Visit Control Plane at https://cp.strongcompute.ai and click on the **Projects** tab. Create a new project and note the
 Project ID.
 
-Open the experiment launch file for editing. Insert your project ID.
+Open the experiment launch file `chessGPT.isc` for editing. Insert your project ID.
 
 ```bash
 isc_project_id = "<isc-project-id>"
