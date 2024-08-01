@@ -158,6 +158,10 @@ class Model(nn.Module):
         return logits, targets, target_pad_mask
 
     def score(self, pgn, move):
+        '''
+        pgn: string e.g. "1.e4 a6 2.Bc4 "
+        move: string e.g. "a5 "
+        '''
         # encode single pgn and proposed move
         encoded_pgn = self.encode(pgn)
         encoded_move = self.encode(move)

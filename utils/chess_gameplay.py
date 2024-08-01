@@ -3,13 +3,20 @@ import torch.nn as nn
 import numpy as np
 from random import choice, choices
 from itertools import accumulate
-from utils.chess_primitives import init_board, conjugate_board, candidate_moves, in_check, is_draw, get_played, which_board, evaluate_position
-from chess import Board
+import chess
 import chess.svg
+from chess import Board
+from chess.engine import SimpleEngine, Limit
 import cairosvg
 import time
-import copy
 import os
+import matplotlib.pyplot as plt
+from PIL import Image
+from io import BytesIO
+import math
+
+WHEREAMI = os.path.dirname(__file__)
+STOCKFISH_PATH = os.path.join(WHEREAMI, 'stockfish/stockfish')
 
 def softmax_temp(x, temp=1):
     z = np.exp((x - x.max()) / temp)
@@ -42,7 +49,6 @@ def entropy_temperature(x, target_entropy, T=[1e-3, 1e0, 1e2], tol=1e-3, max_ite
     return (T[0]+T[2]) / 2
 
 def sans_to_pgn(move_sans):
-    move = 1
     pgn = ["1."]
     for i,san in enumerate(move_sans, start=1):
         pgn += [san, " "]
@@ -92,21 +98,26 @@ class Agent:
         selection = selector(np.array(scores), self.p, self.k)
         return legal_moves[selection]
 
-def play_game(table, agents, max_moves=float('inf'), min_seconds_per_move=2, verbose=False, poseval=False, image_path="/mnt/chess/"):
+def play_game(agents, teams, max_moves=float('inf'), min_seconds_per_move=2, verbose=False, poseval=False, image_path="/mnt/chess/", eval_time_limit=2, eval_depth_limit=25):
 
     board = Board()
-    color_toplay = 'white'
+    if poseval:
+        white_score = (evaluate_position(board, time_limit=2, depth_limit=25) + 10_000) / 20_000
+    else:
+        white_score = 0.5
+
     move_sans = [] # for constructing the pgn
-    board_svg = chess.svg.board(board, size=600, orientation=chess.WHITE, borders=False, coordinates=False)
-    board_png_file_path = os.path.join(image_path, f"image{table}b.png")
-    cairosvg.svg2png(bytestring=board_svg.encode('utf-8'), write_to=board_png_file_path)
-    game_result = {'white': {'moves': [], 'points': 0}, 'black': {'moves': [], 'points': 0}, 'all_moves': [(board, None, board_svg)]}
+
+    if image_path:
+        render_game_board(board, teams, white_score=0.5, winner=None, out_path=image_path)
+    game_result = {'white': {'moves': [], 'points': 0}, 'black': {'moves': [], 'points': 0}, 'all_moves': [(board, None)]}
 
     # Play a game until game over.
     while True:
 
         start = time.perf_counter()
         whites_turn = board.turn
+        turn = "white" if whites_turn else "black"
         
         # Check if checkmate or draw.
         player_points, opponent_points = (None, None)
@@ -117,49 +128,65 @@ def play_game(table, agents, max_moves=float('inf'), min_seconds_per_move=2, ver
 
         if checkmate:
             player_points, opponent_points = (-1.0, 1.0)
+            if verbose:
+                winner = "white" if turn == "black" else "black"
+                print(f"Checkmate! {winner} wins!")
 
         elif draw or stalemate:
             player_points, opponent_points = (0.0, 0.0)
+            if verbose:
+                print("Draw or Stalemate.")
 
-        elif len(game_result[color_toplay]['moves']) >= max_moves:
+        elif len(game_result[turn]['moves']) >= max_moves:
             if poseval:
-                score = evaluate_position(board.fen(), depth_limit=25)
+                score = evaluate_position(board, time_limit=eval_time_limit, depth_limit=eval_depth_limit)
                 player_points, opponent_points = (score, -score)
             else:
                 player_points, opponent_points = (0.0, 0.0)
+            if verbose:
+                print("Max moves reached.")
 
         if player_points is not None:
             player, opponent = ('white', 'black') if whites_turn else ('black','white')
             game_result[player]['points'] = player_points
             game_result[opponent]['points'] = opponent_points
+            if verbose:
+                white_points, black_points = game_result['white']['points'], game_result['black']['points']
+                white_score, black_score = (white_points + 10_000) / 20_000, (black_points + 10_000) / 20_000
+                print(f"White score: {white_score:,.3}, Black score: {black_score:,.3}")
             return game_result
 
         # generate legal move sans
         legal_moves = list(board.legal_moves)
         legal_move_sans = [board.san(move) for move in legal_moves]
 
-        # selected move
+        # agent selects move
         pgn = sans_to_pgn(move_sans)
-        selected_move_san = agents[color_toplay].select_move(pgn, legal_move_sans)
+        selected_move_san = agents[turn].select_move(pgn, legal_move_sans)
         selected_move = legal_moves[legal_move_sans.index(selected_move_san)]
         move_sans.append(selected_move_san)
 
         # push move to the board
         board.push_san(selected_move_san)
 
-        # print the new board to SVG
-        board_svg = chess.svg.board(board, size=600, orientation=chess.WHITE, lastmove=selected_move, borders=False, coordinates=False)
-        cairosvg.svg2png(bytestring=board_svg.encode('utf-8'), write_to=board_png_file_path)
+        # evaluate the board:
+        if poseval:
+            score = evaluate_position(board, time_limit=eval_time_limit, depth_limit=eval_depth_limit)
+            # if white just moved, then it's now black's turn, so the score is black's score
+            if turn == 'white':
+                white_score = (- score + 10_000) / 20_000
+            else:
+                white_score = (score + 10_000) / 20_000
+
+        if image_path:
+            render_game_board(board, teams, white_score=white_score, last_move=selected_move, winner=None, out_path=image_path)
 
         # Add this move to the game_record
-        game_result[color_toplay]['moves'].append((board, selected_move_san, board_svg))
-        game_result['all_moves'].append((board, selected_move_san, board_svg))
+        game_result[turn]['moves'].append((board, selected_move_san))
+        game_result['all_moves'].append((board, selected_move_san))
 
         if verbose:
-            print(f"{color_toplay}: {selected_move_san}")
-
-        # Swap to opponent's perspective
-        color_toplay = 'white' if color_toplay == 'black' else 'black' # Swap to my turn
+            print(f"{turn}: {selected_move_san}")
 
         # Delay next move so that humans can watch!
         move_duration = time.perf_counter() - start
@@ -167,51 +194,72 @@ def play_game(table, agents, max_moves=float('inf'), min_seconds_per_move=2, ver
         if time_remaining > 0:
             time.sleep(time_remaining)
 
-def play_tournament(table, agents, max_games=4, max_moves=float('inf'), min_seconds_per_move=5, verbose=False, poseval=False, image_path="/mnt/chess/"):
-    # plays a number of paired games, one with agent0 as white, the other with agent0 as black.
-    tournament_game_results = []
-    is_draw = True
+def render_game_board(board, teams, white_score, last_move=None, winner=None, out_path=None):
 
-    tournament_results = dict()
-    tournament_results['agent0'] = 0
-    tournament_results['agent1'] = 0
+    team_white = teams["white"]
+    team_black = teams["black"]
 
-    kwargs = {
-        "tabl": table, "max_moves": max_moves, "min_seconds_per_move": min_seconds_per_move, 
-        "verbose": verbose, "poseval": poseval, "image_path": image_path
-    }
-
-    while is_draw:
+    if winner == team_white:
+        team_white += " ♛♚"
+    elif winner == team_black:
+        team_black += " ♛♚"
         
-        if verbose:
-            print(f"\nPlaying Game {len(tournament_game_results) + 1}")
-    
-        # play game with FIRST model as white
-        kwargs["agents"] = {'white': agents[0], 'black': agents[1]}
-        game_result = play_game(**kwargs)
-        tournament_game_results.append(game_result)
-        tournament_results['agent0'] += game_result['white']['points']
-        tournament_results['agent1'] += game_result['black']['points']
+    board_svg = chess.svg.board(board, size=1000, orientation=chess.WHITE, lastmove=last_move, borders=False, coordinates=True, colors={"margin": "black"})
+    board_png = cairosvg.svg2png(bytestring=board_svg.encode('utf-8'))
 
-        if verbose:
-            print(f"\nPlaying Game {len(tournament_game_results) + 1}")
+    fig = plt.figure(figsize=(10, 11.5))
+    fig.set_facecolor('black')
+    height, width = (50, 50)
+    grid = (width, height)
+    font_size = 50
 
-        # play game with SECOND model as white
-        kwargs["agents"] = {'white': agents[1], 'black': agents[0]}
-        game_result = play_game(**kwargs)
-        tournament_game_results.append(game_result)
-        tournament_results['agent0'] += game_result['black']['points']
-        tournament_results['agent1'] += game_result['white']['points']
+    banner_depth = 0.1
+    banner_depth_panels = math.floor(banner_depth * height)
 
-        # Check if draw, if so, play again!
-        is_draw = tournament_results['agent0'] == tournament_results['agent1']
+    eval_bar_width = 0.08
+    eval_bar_width_panels = math.floor(eval_bar_width * width)
+    eval_bar_depth_panels = height - 2 * banner_depth_panels
 
-        if is_draw:
-            print("DRAW!")
+    board_width_panels = width - eval_bar_width_panels
 
-        # If we've played our max_games, call it a day.
-        if len(tournament_game_results) >= max_games:
-            # End the loop
-            is_draw = False
+    # First row with one axis
+    ax1 = plt.subplot2grid(grid, (0, 0), rowspan=banner_depth_panels, colspan=width)
+    ax1.set_facecolor('black')
+    ax1.text(0.04, 0.68, team_black, color='white', fontsize=font_size, ha='left', va='top', fontweight='bold')
 
-    return tournament_results, tournament_game_results
+    # Second row with three axes arranged horizontally
+    ax2 = plt.subplot2grid(grid, (banner_depth_panels, 0), rowspan=eval_bar_depth_panels, colspan=eval_bar_width_panels)
+    ax2.set_facecolor('black')
+    ax2.axvspan(xmin=-0.03, xmax=0.04, color='white', alpha=1, ymax=white_score)
+    ax2.axhline(y=0.5, color='red', linestyle='-', linewidth=4)  # Add a dashed horizontal white line at score 0
+
+    # The board
+    ax3 = plt.subplot2grid(grid, (banner_depth_panels, eval_bar_width_panels), rowspan=eval_bar_depth_panels, colspan=board_width_panels)
+    img = Image.open(BytesIO(board_png))
+    ax3.imshow(img)
+
+    # Third row with one axis
+    ax5 = plt.subplot2grid(grid, (height - banner_depth_panels, 0), rowspan=banner_depth_panels, colspan=width)
+    ax5.text(0.04, 0.85, team_white, color='white', fontsize=font_size, ha='left', va='top', fontweight='bold')
+    ax5.set_facecolor('black')
+
+    for ax in [ax1, ax2, ax3, ax5]:
+        ax.set_title('')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.grid(False)
+        ax.axis('off')
+
+    plt.savefig(out_path, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+def evaluate_position(board, time_limit=2, depth_limit=25, STOCKFISH_PATH=STOCKFISH_PATH):
+    # Initialize the Stockfish engine
+    with SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
+        # Perform the evaluation
+        info = engine.analyse(board, Limit(depth=depth_limit, time=time_limit))
+        # Extract the score
+        score = info['score'].relative.score(mate_score=10_000)
+    return score

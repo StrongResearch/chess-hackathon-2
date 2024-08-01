@@ -1,3 +1,32 @@
+import torch
+import torch.nn as nn
+import math
+
+PGN_CHARS = " #+-./0123456789:=BKLNOQRabcdefghx{}"
+
+def softmax(x, dim=-1, temp=1, ghost=False):
+    z = torch.exp((x - torch.max(x, dim=dim, keepdim=True).values) / temp)
+    z_sum = z.sum(dim=dim, keepdim=True)
+    if ghost:
+        z_sum += torch.ones_like(z_sum)
+    return z / z_sum
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, embed_dim, dropout=0.1, max_len=5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, embed_dim)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_parameter('pe', nn.Parameter(pe, requires_grad=False))
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
 class Model(nn.Module):
     """Transformer Model by PyTorch"""
 
@@ -49,6 +78,10 @@ class Model(nn.Module):
         return logits, targets, target_pad_mask
     
     def score(self, pgn, move):
+        '''
+        pgn: string e.g. "1.e4 a6 2.Bc4 "
+        move: string e.g. "a5 "
+        '''
         # encode single pgn and proposed move
         encoded_pgn = self.encode(pgn)
         encoded_move = self.encode(move)
