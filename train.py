@@ -88,12 +88,13 @@ def main(args, timer):
     optimizer = Lamb(model.parameters(), lr=args.lr, weight_decay=args.wd)
     metrics = {"train": MetricsTracker(), "test": MetricsTracker()}
 
-    external_resume_path = os.path.join(args.load_dir, saver.symlink_name)
     local_resume_path = os.path.join(args.save_dir, saver.symlink_name)
     if os.path.exists(local_resume_path) and os.path.islink(local_resume_path):
         load_path = local_resume_path
-    elif os.path.exists(external_resume_path) and os.path.islink(external_resume_path):
-        load_path = external_resume_path
+    elif args.load_dir:
+        external_resume_path = os.path.join(args.load_dir, saver.symlink_name)
+        if os.path.exists(external_resume_path) and os.path.islink(external_resume_path):
+            load_path = external_resume_path
     else:
         load_path = None
 
