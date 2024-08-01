@@ -49,7 +49,7 @@ compute_mode = "cycle"
 command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-2/ && torchrun --nnodes=12 --nproc-per-node=6 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --model-config /root/chess-hackathon-2/model_config.yaml --save-dir $OUTPUT_PATH"
 ```
 
-Note we are launching in compute mode "cycle" to validate that our model will train.
+Note we are launching with `compute_mode = "cycle"` for a 90 second cycle to validate that our model will train. Later when we want to let our model train for an extended period, we will change this to `compute_mode = "interruptible"` or `compute_mode = "burst"`.
 
 ### Step 5. Launch training
 
