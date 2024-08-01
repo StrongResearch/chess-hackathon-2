@@ -77,7 +77,7 @@ You are welcome to use any training dataset you prefer, in which case the conten
 One important thing to bear in mind, however, is that our gameplay code will follow the standard PGN format, where a typical game PGN might look as follows. 
 
 ```python
-pgn = "1.e4 a6 2.Bc4 a5 3.Qf3 a4 4.Qf7'
+pgn = "1.e4 a6 2.Bc4 a5 3.Qf3 a4 4.Qf7"
 ```
 
 If your training data does not follow this format then your model may struggle to parse the provided inputs during the game.
