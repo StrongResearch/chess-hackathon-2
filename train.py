@@ -12,6 +12,7 @@ import argparse
 import os
 import socket
 import yaml
+import time
 
 from cycling_utils import (
     InterruptableDistributedSampler,
@@ -111,6 +112,7 @@ def main(args, timer):
         train_dataloader.sampler.load_state_dict(checkpoint["train_sampler"])
         test_dataloader.sampler.load_state_dict(checkpoint["test_sampler"])
         metrics = checkpoint["metrics"]
+        timer.start_time = time.time()
         timer.report("Retrieved saved checkpoint")
 
     for epoch in range(train_dataloader.sampler.epoch, 10_000):
@@ -183,7 +185,8 @@ Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
                             "optimizer": optimizer.state_dict(),
                             "train_sampler": train_dataloader.sampler.state_dict(),
                             "test_sampler": test_dataloader.sampler.state_dict(),
-                            "metrics": metrics
+                            "metrics": metrics,
+                            "timer": timer
                         },
                         os.path.join(checkpoint_directory, "checkpoint.pt"),
                     )
@@ -252,7 +255,8 @@ Uncertainty: [{rpt_uncertainty:,.3f}]"""
                                     "optimizer": optimizer.state_dict(),
                                     "train_sampler": train_dataloader.sampler.state_dict(),
                                     "test_sampler": test_dataloader.sampler.state_dict(),
-                                    "metrics": metrics
+                                    "metrics": metrics,
+                                    "timer": timer
                                 },
                                 os.path.join(checkpoint_directory, "checkpoint.pt"),
                             )
