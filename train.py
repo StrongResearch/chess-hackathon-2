@@ -235,7 +235,7 @@ Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
 
                         metrics["test"].update({
                             "gen_tokens": count_real,
-                            "accum_loss": loss.item() * args.grad_accum, 
+                            "accum_loss": loss.item(), 
                             "top1_correct": top1_correct.item(), 
                             "top5_correct": top5_correct.item(),
                             "uncertainty": total_prediction_entropy.item()
