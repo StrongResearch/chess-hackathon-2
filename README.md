@@ -26,7 +26,7 @@ pip install -r requirements.txt
 Also install the python and Jupyter extensions for VSCode so you can run the notebook `gameplay.ipynb`!
 
 ### Step 3. Choose a model
-Your options are the Strong Transformer or Transformer by PyTorch.
+Options available in this demo are the **Strong Transformer** or **Transformer by PyTorch**.
 
 Copy your chosen model file and the corresponding config YAML file from the `~/chess-hackathon-2/models` to `~/chess-hackathon-2`.
 
@@ -74,7 +74,7 @@ We have prepared a dataset that you can use if you like. This dataset has been m
 
 The code used to generate this dataset, as well as the PyTorch Dataset class `PGN_HDF_Dataset` that uses this dataset can be found in the `utils/datasets.py` file. Much of the pre-processing is concerned with packaging collections of PGN strings into flat `HDF` files for convenience. This file also contains a defined constant `PGN_CHARS` which is a string containing all the characters necessary to construct a valid PGN.
 
-You are welcome to use any training dataset you prefer, in which case the contents of `utils/datasets.py` can serve as a helpful example to follow. For information about how to import datasets into the Strong Compute ISC, refer to the **Datasets** section of the onboarding docs: https://strong-compute.gitbook.io/strong-compute-developer-docs.
+You are welcome to use any training dataset you prefer, in which case the contents of `utils/datasets.py` can serve as a helpful example to follow. For information about how to import datasets into the Strong Compute ISC, refer to the **Datasets** section of the onboarding docs: https://strong-compute.gitbook.io/strong-compute-developer-docs. **Please limit datasets to a maximum size of 100GB.**
 
 One important thing to bear in mind, however, is that our gameplay code will follow the standard PGN format, where a typical game PGN might look as follows. 
 
