@@ -42,11 +42,11 @@ Open the experiment launch file `chessGPT.isc` for editing. Insert your project 
 isc_project_id = "<isc-project-id>"
 experiment_name = "chessGPT"
 gpu_type = "24GB VRAM GPU"
-nnodes = 12
+gpus = 48
 output_path = "~/outputs/chessGPT"
 dataset_id = "f912e556-e78f-48c7-a8f0-1822aba36714"
 compute_mode = "cycle"
-command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-2/ && torchrun --nnodes=12 --nproc-per-node=6 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --model-config /root/chess-hackathon-2/model_config.yaml --save-dir $OUTPUT_PATH"
+command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-2/ && torchrun --nnodes=$NNODES --nproc-per-node=$N_PROC --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --model-config /root/chess-hackathon-2/model_config.yaml --save-dir $OUTPUT_PATH"
 ```
 
 Note we are launching with `compute_mode = "cycle"` for a 90 second cycle to validate that our model will train. Later when we want to let our model train for an extended period, we will change this to `compute_mode = "interruptible"` or `compute_mode = "burst"`.
