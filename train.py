@@ -13,6 +13,7 @@ import os
 import socket
 import yaml
 import time
+import math
 
 from cycling_utils import (
     InterruptableDistributedSampler,
@@ -34,8 +35,9 @@ def get_args_parser():
     parser.add_argument("--save-dir", help="save checkpoint path", type=Path, required=True)
     parser.add_argument("--load-dir", help="resume from checkpoint path (optional)", type=Path, default=None)
     parser.add_argument("--bs", help="batch size", type=int, default=4)
-    parser.add_argument("--lr", help="learning rate", type=float, default=0.0005)
+    parser.add_argument("--lr", help="learning rate", type=float, default=0.001)
     parser.add_argument("--wd", help="weight decay", type=float, default=0.01)
+    parser.add_argument("--ws", help="learning rate warm up steps", type=int, default=1000)
     parser.add_argument("--grad-accum", help="gradient accumulation steps", type=int, default=10)
     parser.add_argument("--save-steps", help="saving interval steps", type=int, default=100)
     return parser
@@ -112,26 +114,28 @@ def main(args, timer):
         train_dataloader.sampler.load_state_dict(checkpoint["train_sampler"])
         test_dataloader.sampler.load_state_dict(checkpoint["test_sampler"])
         metrics = checkpoint["metrics"]
+        timer = checkpoint["timer"]
         timer.start_time = time.time()
         timer.report("Retrieved saved checkpoint")
 
     for epoch in range(train_dataloader.sampler.epoch, 10_000):
         with train_dataloader.sampler.in_epoch(epoch):
             timer.report(f"Training epoch {epoch}")
-            train_steps_per_epoch = len(train_dataloader)
+            train_batches_per_epoch = len(train_dataloader)
+            train_steps_per_epoch = math.ceil(train_batches_per_epoch / args.grad_accum)
             optimizer.zero_grad()
             model.train()
 
             for pgn_batch in train_dataloader:
 
                 # Determine the current step
-                step = train_dataloader.sampler.progress // train_dataloader.batch_size
-                is_save_step = (step + 1) % args.save_steps == 0
-                is_accum_step = (step + 1) % args.grad_accum == 0
-                is_last_step = (step + 1) == train_steps_per_epoch
+                batch = train_dataloader.sampler.progress // train_dataloader.batch_size
+                is_save_batch = (batch + 1) % args.save_steps == 0
+                is_accum_batch = (batch + 1) % args.grad_accum == 0
+                is_last_batch = (batch + 1) == train_batches_per_epoch
 
                 # Prepare checkpoint directory
-                if (is_save_step or is_last_step) and args.is_master:
+                if (is_save_batch or is_last_batch) and args.is_master:
                     checkpoint_directory = saver.prepare_checkpoint_directory()
 
                 logits, targets, target_pad_mask = model(pgn_batch)
@@ -159,10 +163,16 @@ def main(args, timer):
                     "uncertainty": total_prediction_entropy.item()
                 })
 
-                if is_accum_step or is_last_step:
+                if is_accum_batch or is_last_batch:
                     optimizer.step()
                     optimizer.zero_grad()
-
+                    step = batch // args.grad_accum
+                    
+                    # learning rate warmup
+                    lr_factor = min((epoch + 1) * step / args.ws, 1)
+                    for g in optimizer.param_groups:
+                        g['lr'] = lr_factor * args.lr
+                    
                     metrics["train"].reduce()
                     rpt = metrics["train"].local
                     avg_loss = rpt["accum_loss"] / rpt["gen_tokens"]
@@ -170,14 +180,14 @@ def main(args, timer):
                     rpt_top5 = 100 * rpt["top5_correct"] / rpt["gen_tokens"]
                     rpt_uncertainty = rpt["uncertainty"] / rpt["gen_tokens"]
                     report = f"""\
-Epoch [{epoch:,}] Step [{step:,} / {train_steps_per_epoch:,}], \
+Epoch [{epoch:,}] Step [{step:,} / {train_steps_per_epoch:,}] Batch [{batch:,} / {train_batches_per_epoch:,}] Lr: [{lr_factor * args.lr:,.3}], \
 Avg Loss [{avg_loss:,.3f}], Top1: [{rpt_top1:,.3f}%], Top5: [{rpt_top5:,.3f}%], \
 Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
                     timer.report(report)
                     metrics["train"].reset_local()
 
                 # Saving
-                if (is_save_step or is_last_step) and args.is_master:
+                if (is_save_batch or is_last_batch) and args.is_master:
                     # Save checkpoint
                     atomic_torch_save(
                         {
@@ -194,19 +204,19 @@ Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
 
             with test_dataloader.sampler.in_epoch(epoch):
                 timer.report(f"Testing epoch {epoch}")
-                test_steps_per_epoch = len(test_dataloader)
+                test_batches_per_epoch = len(test_dataloader)
                 model.eval()
 
                 with torch.no_grad():
                     for pgn_batch in test_dataloader:
 
                         # Determine the current step
-                        step = test_dataloader.sampler.progress // test_dataloader.batch_size
-                        is_save_step = (step + 1) % args.save_steps == 0
-                        is_last_step = (step + 1) == test_steps_per_epoch
+                        batch = test_dataloader.sampler.progress // test_dataloader.batch_size
+                        is_save_batch = (batch + 1) % args.save_steps == 0
+                        is_last_batch = (batch + 1) == test_batches_per_epoch
 
                         # Prepare checkpoint directory
-                        if (is_save_step or is_last_step) and args.is_master:
+                        if (is_save_batch or is_last_batch) and args.is_master:
                             checkpoint_directory = saver.prepare_checkpoint_directory()
 
                         logits, targets, target_pad_mask = model(pgn_batch)
@@ -232,7 +242,7 @@ Uncertainty: [{rpt_uncertainty:,.3f}], Tokens: {rpt['gen_tokens']:,.0f}"""
                         })
                         
                         # Reporting
-                        if is_last_step:
+                        if is_last_batch:
 
                             metrics["test"].reduce()
                             rpt = metrics["test"].local
@@ -247,7 +257,7 @@ Uncertainty: [{rpt_uncertainty:,.3f}]"""
                             timer.report(report)
                         
                         # Saving
-                        if (is_save_step or is_last_step) and args.is_master:
+                        if (is_save_batch or is_last_batch) and args.is_master:
                             # Save checkpoint
                             atomic_torch_save(
                                 {
