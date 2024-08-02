@@ -51,6 +51,8 @@ command = "source ~/.chess/bin/activate && cd ~/chess-hackathon-2/ && torchrun -
 
 Note we are launching with `compute_mode = "cycle"` for a 90 second cycle to validate that our model will train. Later when we want to let our model train for an extended period, we will change this to `compute_mode = "interruptible"` or `compute_mode = "burst"`.
 
+We have set a limit of **48 gpus** per experiment. This will allow us to hold a number of GPUs in our cluster in reserve in case of hardware failure. This limit will also apply to **burst** experiments.
+
 ### Step 5. Launch training
 
 Launch your GPT model to train.
