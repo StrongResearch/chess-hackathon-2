@@ -5,14 +5,14 @@ import math
 
 PGN_CHARS = " #+-./0123456789:=BKLNOQRabcdefghx{}"
 
-def softmax(x, dim=-1, temp=1, ghost=False):
+def softmax(x, dim=-1, temp=1, ghost=None):
     z = torch.exp((x - torch.max(x, dim=dim, keepdim=True).values) / temp)
     z_sum = z.sum(dim=dim, keepdim=True)
-    if ghost:
-        z_sum += torch.ones_like(z_sum)
+    if isinstance(ghost, nn.Tensor):
+        z_sum += ghost.view(1, -1, 1, 1
     return z / z_sum
 
-def multihead_cross_attention(Q, K, V, causal=True, ghost=False, device='cpu'):
+def multihead_cross_attention(Q, K, V, causal=True, ghost=None, device='cpu'):
     '''
     Accepts input of Q, K, V each with shape (batch_size, nhead, seq_len, inner_dim),
     or more generally with shape (..., seq_len, inner_dim).
@@ -23,8 +23,7 @@ def multihead_cross_attention(Q, K, V, causal=True, ghost=False, device='cpu'):
     QKT = torch.einsum('...Qe,...Ke->...QK', Q, K) / math.sqrt(inner_dim)
     if causal:
         mask = nn.Transformer.generate_square_subsequent_mask(seq_len, dtype=torch.float, device=device)
-        mask_shape = [1] * (len(Q.shape) - 2) + [seq_len, seq_len]
-        mask = mask.view(*mask_shape)
+        mask = mask.view(1, 1, seq_len, seq_len)
         QKT += mask
     S = softmax(QKT, dim=-1, ghost=ghost)
     A = torch.einsum('...SV,...Ve->...Se', S, V)
@@ -35,61 +34,68 @@ class MultiHeadSelfAttention(nn.Module):
     Assumes input with shape (batch_size, seq_len, embed_dim).
     If causal, causal mask is generated and applied.
     '''
-    def __init__(self, embed_dim=512, nhead=8, inner_dim=512, causal=True, ghost=False, device='cpu', init_scale=0.1):
+    def __init__(self, embed_dim=512, nhead=8, inner_dim=512, causal=True, ghost=False, device='cpu'):
         super().__init__()
         self.nhead = nhead
         self.inner_dim = inner_dim
         self.causal = causal
         self.ghost = ghost
         self.device = device
-        self.Wqkv = nn.parameter.Parameter(data=torch.empty(embed_dim, 3 * nhead * inner_dim))
-        self.Wo = nn.parameter.Parameter(data=torch.empty(nhead * inner_dim, embed_dim))
-        self.init_weights(init_scale)
+        self.ghost = nn.parameter.Parameter(data=torch.zeros(nhead)) if ghost else None
+        self.Wqkv = nn.Linear(embed_dim, 3 * nhead * inner_dim)
+        self.Wo = nn.Linear(nhead * inner_dim, embed_dim)
+        self.init_weights()
 
-    def init_weights(self, init_scale):
-        nn.init.uniform_(self.Wqkv, -init_scale, init_scale)
-        nn.init.uniform_(self.Wo, -init_scale, init_scale)
+    def init_weights(self):
+        nn.init.xavier_uniform_(self.Wqkv.weight)
+        nn.init.xavier_uniform_(self.Wo.weight)
+        nn.init.zeros_(self.Wqkv.bias)
+        nn.init.zeros_(self.Wo.bias)
 
     def forward(self, inputs):
         batch_size, seq_len, embed_dim = inputs.shape
-        QKV = torch.matmul(inputs, self.Wqkv)
+        QKV = self.Wqkv(inputs)
         QKVh = QKV.reshape(batch_size, seq_len, 3, self.nhead, self.inner_dim).transpose(1, 3)
         Q, K, V = [t.squeeze(2) for t in QKVh.split(1, 2)] # squeezing out the projection dimension only
         A = multihead_cross_attention(Q, K, V, causal=self.causal, ghost=self.ghost, device=self.device).transpose(1, 2).reshape(batch_size, seq_len, -1)
-        outputs = torch.matmul(A, self.Wo)
+        outputs = self.Wo(A)
         return outputs
 
 class FeedForward(nn.Module):
-    def __init__(self, embed_dim=512, ff_dim=2048, init_scale=0.1):
+    def __init__(self, embed_dim=512, ff_dim=2048):
         super().__init__()
         self.lin1 = nn.Linear(embed_dim, ff_dim, bias=True)
         self.lin2 = nn.Linear(ff_dim, embed_dim, bias=True)
         self.act = nn.LeakyReLU()
-        self.init_weights(init_scale)
+        self.init_weights()
 
-    def init_weights(self, init_scale):
-        nn.init.uniform_(self.lin1.weight, -init_scale, init_scale)
+    def init_weights(self):
+        nn.init.xavier_uniform_(self.lin1.weight)
+        nn.init.xavier_uniform_(self.lin2.weight)
         nn.init.zeros_(self.lin1.bias)
-        nn.init.uniform_(self.lin2.weight, -init_scale, init_scale)
         nn.init.zeros_(self.lin2.bias)
         
     def forward(self, inputs):
         return self.lin2(self.act(self.lin1(inputs)))
 
 class TransformerEncoderBlock(nn.Module):
-    def __init__(self, embed_dim=512, nhead=8, inner_dim=512, ff_dim=2048, dropout=0.1, causal=True, ghost=False, device='cpu', init_scale=0.1):
+    def __init__(self, embed_dim=512, nhead=8, inner_dim=512, ff_dim=2048, dropout=0.1, causal=True, norm_first=False, ghost=False, device='cpu'):
         super().__init__()
-        self.self_attention = MultiHeadSelfAttention(embed_dim, nhead, inner_dim, causal, ghost, device, init_scale)
-        self.layer_norm = nn.LayerNorm(embed_dim)
-        self.feedforward = FeedForward(embed_dim, ff_dim, init_scale)
+        self.norm_first = norm_first
+        self.self_attention = MultiHeadSelfAttention(embed_dim, nhead, inner_dim, causal, ghost, device)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.feedforward = FeedForward(embed_dim, ff_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(p=dropout)
     
     def forward(self, inputs):
-        outputs = inputs + self.dropout(self.self_attention(inputs))
-        outputs = self.layer_norm(outputs)
-        outputs = outputs + self.dropout(self.feedforward(outputs))
-        outputs = self.layer_norm(outputs)
-        return outputs
+        if self.norm_first:
+            inputs = inputs + self.dropout(self.self_attention(self.norm1(inputs)))
+            inputs = inputs + self.dropout(self.feedforward(self.norm2(inputs)))
+        else:
+            inputs = self.norm1(inputs + self.dropout(self.self_attention(inputs)))
+            inputs = self.norm2(inputs + self.dropout(self.feedforward(inputs)))
+        return inputs
 
 class PositionalEncoding(nn.Module):
     def __init__(self, embed_dim, dropout=0.1, max_len=5000):
@@ -109,21 +115,21 @@ class PositionalEncoding(nn.Module):
 
 class Model(nn.Module):
     """Transformer Model"""
-    def __init__(self, vocab_size=36, nlayers=10, embed_dim=512, nhead=8, inner_dim=512, ff_dim=2048, dropout=0.1, causal=True, ghost=False, device='cpu', init_scale=0.1):
+    def __init__(self, vocab_size=36, nlayers=10, embed_dim=512, nhead=8, inner_dim=512, ff_dim=2048, dropout=0.1, causal=True, norm_first=False, ghost=False, device='cpu'):
         super().__init__()
         self.pgn_chars = PGN_CHARS
         self.device = device
         self.embedder = nn.Embedding(vocab_size, embed_dim)
         self.pos_encoder = PositionalEncoding(embed_dim, dropout)
-        enc_params = {"embed_dim": embed_dim, "nhead": nhead, "inner_dim": inner_dim, "ff_dim": ff_dim, "dropout":  dropout, "causal": causal, "ghost": ghost, "device": device, "init_scale": init_scale}
+        enc_params = {"embed_dim": embed_dim, "nhead": nhead, "inner_dim": inner_dim, "ff_dim": ff_dim, "dropout":  dropout, "causal": causal, "norm_first": norm_first, "ghost": ghost, "device": device}
         layers = OrderedDict([(f"EncoderLayer{i}", TransformerEncoderBlock(**enc_params)) for i in range(nlayers)])
         self.encoder = nn.Sequential(layers)
         self.decoder = nn.Linear(embed_dim, vocab_size)
-        self.init_weights(init_scale)
+        self.init_weights()
 
-    def init_weights(self, init_scale):
-        nn.init.uniform_(self.embedder.weight, -init_scale, init_scale)
-        nn.init.uniform_(self.decoder.weight, -init_scale, init_scale)
+    def init_weights(self):
+        nn.init.uniform_(self.embedder.weight, -1.0, 1.0)
+        nn.init.xavier_uniform_(self.decoder.weight)
         nn.init.zeros_(self.decoder.bias)
 
     def encode(self, pgn):
